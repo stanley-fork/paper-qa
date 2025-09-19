@@ -10,7 +10,7 @@ import re
 import warnings
 from collections.abc import Collection, Iterable, Mapping, Sequence
 from copy import deepcopy
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 from random import Random
@@ -54,6 +54,9 @@ DocKey = Any
 logger = logging.getLogger(__name__)
 
 
+# These probably should be promoted to be on DocDetails
+# but this will take a larger refactor.
+DOC_DETAILS_OTHERS_TO_KEEP: Collection[str] = {"bibtex_source", "client_source"}
 VAR_MATCH_LOOKUP: Collection[str] = {"1", "true"}
 VAR_MISMATCH_LOOKUP: Collection[str] = {"0", "false"}
 DEFAULT_FIELDS_TO_OVERWRITE_FROM_METADATA: Collection[str] = {
@@ -358,16 +361,21 @@ class PQASession(BaseModel):
                     # Similar to the explanation in `map_fxn_summary`'s internals
                     # on why we drop embeddings, drop embeddings here too because
                     # embeddings aren't displayed to front end users
-                    # we drop "other" because it is large and depends on provenance
-                    # of the doc, so no downstream code should rely on it anyway.
-                    # We do not drop in map_fxn_summary because we may want tools to inspect other.
-                    doc=c.text.doc.model_dump(exclude={"embedding", "other"}),
+                    doc=c.text.doc.model_dump(exclude={"embedding"}),
                     # We drop media since images can be quite large
                     **c.text.model_dump(exclude={"text", "embedding", "doc", "media"}),
                 ),
             )
             for c in self.contexts
         ]
+        # Now we drop extras from other fields
+        for c in self.contexts:
+            if isinstance(c.text.doc, DocDetails):
+                c.text.doc.other = {
+                    k: v
+                    for k, v in c.text.doc.other.items()
+                    if k in DOC_DETAILS_OTHERS_TO_KEEP
+                }
 
     def populate_formatted_answers_and_bib_from_raw_answer(
         self,
@@ -698,6 +706,15 @@ class DocDetails(Doc):
     def clean_key(cls, value: str) -> str:
         # Replace HTML tags with empty string
         return re.sub(pattern=r"<\/?\w{1,10}>", repl="", string=value)
+
+    @field_validator("publication_date")
+    @classmethod
+    def add_tzinfo(cls, value: datetime | None) -> datetime | None:
+        if value is None:
+            return None
+        if value.tzinfo is None or value.tzinfo.utcoffset(value) is None:
+            return value.replace(tzinfo=UTC)  # Assume UTC if unspecified
+        return value.astimezone(UTC)  # Convert to UTC
 
     @classmethod
     def lowercase_doi_and_populate_doc_id(cls, data: dict[str, Any]) -> dict[str, Any]:
