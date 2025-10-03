@@ -36,6 +36,7 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
+          cache-local-path: /tmp/baipp-uv_cache_dir # Work around https://github.com/hynek/build-and-inspect-python-package/issues/181
           python-version: ${{ matrix.python-version }}
       - name: Unset UV_PYTHON for BAIPP # SEE: https://github.com/hynek/build-and-inspect-python-package/issues/180
         run: echo "UV_PYTHON=" >> "$GITHUB_ENV"
@@ -72,6 +73,7 @@ jobs:
         run: echo "UV_PYTHON=${{ matrix.python-version }}" >> "$GITHUB_ENV"
       - run: uv sync
       - run: uv run pylint src packages
+      - run: uv run refurb .
       - uses: suzuki-shunsuke/github-action-renovate-config-validator@v1.1.1
   test:
     runs-on: ubuntu-latest
