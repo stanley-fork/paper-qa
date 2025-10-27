@@ -10,7 +10,7 @@ import pytest
 from lmi.utils import bytes_to_string
 from paperqa import Doc, Docs
 from paperqa.readers import PDFParserFn, chunk_pdf
-from paperqa.utils import ImpossibleParsingError
+from paperqa.utils import ImpossibleParsingError, get_citation_ids
 
 from paperqa_docling import parse_pdf_to_pages
 
@@ -87,8 +87,8 @@ async def test_parse_pdf_to_pages() -> None:
         ("What actions can the Crawler take?", [(("search", "expand", "stop"), 2)]),
         ("What actions can the Selector take?", [(("select", "drop"), 2)]),
         (
-            "How many User Query are there, and what do they do?",
-            [(("two", "2"), 2), (("crawler", "selector"), 2)],
+            "How many User Query blue boxes are there, and what are they connected to?",
+            [(("two", "2"), 1), (("crawler", "selector"), 2)],
         ),
     ):
         session = await docs.aquery(query=query)
@@ -97,12 +97,17 @@ async def test_parse_pdf_to_pages() -> None:
             c.text.text == fig_1_text.text and c.text.media == fig_1_text.media
             for c in session.contexts
         ), "Expected context to reuse Figure 1's text and media"
+        # Remove citations so numeric assertions don't have false positives
+        raw_answer_no_citations = session.raw_answer
+        for key in get_citation_ids(session.raw_answer):
+            raw_answer_no_citations = raw_answer_no_citations.replace(f"({key})", "")
         for substrings, min_count in cast(
             list[tuple[tuple[str, ...], int]], substrings_min_counts
         ):
             assert (
-                sum(x in session.answer.lower() for x in substrings) >= min_count
-            ), f"Expected {session.answer=} to have at {substrings} present"
+                sum(x in raw_answer_no_citations.lower() for x in substrings)
+                >= min_count
+            ), f"Expected {raw_answer_no_citations=} to have {substrings} present"
 
     # Check the no-media behavior
     parsed_text_no_media = parse_pdf_to_pages(filepath, parse_media=False)
@@ -166,6 +171,25 @@ def test_page_range() -> None:
     ], "Expected pages to be truncated to 15 or us to get blown up"
     assert parsed_text_p1_20.metadata.name
     assert "page_range=(1,20)" in parsed_text_p1_20.metadata.name
+
+
+def test_media_deduplication() -> None:
+    parsed_text = parse_pdf_to_pages(STUB_DATA_DIR / "duplicate_media.pdf")
+    assert isinstance(parsed_text.content, dict)
+    assert len(parsed_text.content) == 5, "Expected full PDF read"
+    all_media = [m for _, media in parsed_text.content.values() for m in media]  # type: ignore[misc]
+
+    all_images = [m for m in all_media if m.info.get("type") == "picture"]
+    assert len(all_images) == 5, "Expected each image to be read"
+    assert (
+        len(set(all_images)) <= 2
+    ), "Expected images on all pages beyond 1 to be deduplicated"
+
+    all_tables = [m for m in all_media if m.info.get("type") == "table"]
+    assert len(all_tables) == 5, "Expected each table to be read"
+    assert (
+        len(set(all_tables)) <= 2
+    ), "Expected tables on all pages beyond 1 to be deduplicated"
 
 
 def test_page_size_limit_denial() -> None:
