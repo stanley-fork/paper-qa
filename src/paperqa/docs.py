@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -277,10 +278,7 @@ class Docs(BaseModel):  # noqa: PLW1641  # TODO: add __hash__
             texts = await read_doc(
                 path,
                 Doc(docname="", citation="", dockey=dockey),  # Fake doc
-                chunk_chars=parse_config.chunk_size,
-                overlap=parse_config.overlap,
                 page_size_limit=parse_config.page_size_limit,
-                use_block_parsing=parse_config.pdfs_use_block_parsing,
                 parse_images=False,  # Peeking is text only
                 # We only use the first chunk, so let's peek just enough pages for that.
                 # Usually pages 1 - 2 give that,
@@ -288,6 +286,7 @@ class Docs(BaseModel):  # noqa: PLW1641  # TODO: add __hash__
                 # we read pages 1 - 3 to be safe
                 page_range=(1, 3),
                 parse_pdf=parse_config.parse_pdf,
+                **parse_config.reader_config,
             )
             if not texts or not texts[0].text.strip():
                 raise ValueError(f"Could not read document {path}. Is it empty?")
@@ -387,16 +386,20 @@ class Docs(BaseModel):  # noqa: PLW1641  # TODO: add __hash__
                 doc, **(query_kwargs | kwargs)
             )
 
+        parse_images, enrich_media = parse_config.should_parse_and_enrich_media
+        multimodal_kwargs: dict[str, Any] = {"parse_images": parse_images}
+        if enrich_media:
+            multimodal_kwargs["multimodal_enricher"] = (
+                all_settings.make_media_enricher()
+            )
         texts, metadata = await read_doc(
             path,
             doc,
-            chunk_chars=parse_config.chunk_size,
-            overlap=parse_config.overlap,
             page_size_limit=parse_config.page_size_limit,
-            use_block_parsing=parse_config.pdfs_use_block_parsing,
-            parse_images=parse_config.multimodal,
             parse_pdf=parse_config.parse_pdf,
             include_metadata=True,
+            **multimodal_kwargs,
+            **parse_config.reader_config,
         )
         # loose check to see if document was loaded
         if metadata.name != "image" and (
@@ -480,7 +483,16 @@ class Docs(BaseModel):  # noqa: PLW1641  # TODO: add __hash__
         if embedding_model and texts[0].embedding is None:
             for t, t_embedding in zip(
                 texts,
-                await embedding_model.embed_documents(texts=[t.text for t in texts]),
+                await embedding_model.embed_documents(
+                    texts=await asyncio.gather(
+                        *(
+                            t.get_embeddable_text(
+                                all_settings.parsing.should_parse_and_enrich_media[1]
+                            )
+                            for t in texts
+                        )
+                    )
+                ),
                 strict=True,
             ):
                 t.embedding = t_embedding
@@ -534,14 +546,20 @@ class Docs(BaseModel):  # noqa: PLW1641  # TODO: add __hash__
         self.deleted_dockeys.add(dockey)
         self.texts = list(filter(lambda x: x.doc.dockey != dockey, self.texts))
 
-    async def _build_texts_index(self, embedding_model: EmbeddingModel) -> None:
+    async def _build_texts_index(
+        self, embedding_model: EmbeddingModel, with_enrichment: bool = False
+    ) -> None:
         texts = [t for t in self.texts if t not in self.texts_index]
         # For any embeddings we are supposed to lazily embed, embed them now
         to_embed = [t for t in texts if t.embedding is None]
         if to_embed:
             for t, t_embedding in zip(
                 to_embed,
-                await embedding_model.embed_documents(texts=[t.text for t in to_embed]),
+                await embedding_model.embed_documents(
+                    texts=await asyncio.gather(
+                        *(t.get_embeddable_text(with_enrichment) for t in to_embed)
+                    )
+                ),
                 strict=True,
             ):
                 t.embedding = t_embedding
@@ -563,7 +581,10 @@ class Docs(BaseModel):  # noqa: PLW1641  # TODO: add __hash__
         # TODO: should probably happen elsewhere
         self.texts_index.mmr_lambda = settings.texts_index_mmr_lambda
 
-        await self._build_texts_index(embedding_model)
+        await self._build_texts_index(
+            embedding_model,
+            with_enrichment=settings.parsing.should_parse_and_enrich_media[1],
+        )
         _k = k + len(self.deleted_dockeys)
         matches: list[Text] = cast(
             "list[Text]",
