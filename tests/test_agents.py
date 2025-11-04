@@ -60,7 +60,7 @@ from paperqa.agents.tools import (
 from paperqa.docs import Docs
 from paperqa.prompts import CANNOT_ANSWER_PHRASE, CONTEXT_INNER_PROMPT_NOT_DETAILED
 from paperqa.settings import AgentSettings, IndexSettings, Settings
-from paperqa.types import Context, Doc, PQASession, Text
+from paperqa.types import Context, Doc, DocDetails, PQASession, Text
 from paperqa.utils import encode_id, extract_thought, get_year, md5sum
 
 
@@ -91,11 +91,12 @@ async def test_get_directory_index(
         ], "Incorrect fields in index"
         assert not index.changed, "Expected index to not have changes at this point"
         # bates.txt + empty.txt + flag_day.html + gravity_hill.md + influence.pdf
-        # + obama.txt + paper.pdf + pasa.pdf + duplicate_media.pdf,
+        # + obama.txt + paper.pdf + pasa.pdf + duplicate_media.pdf
+        # + dummy.docx + dummy.pptx + dummy.xlsx,
         # but empty.txt fails to be added
         path_to_id = await index.index_files
         assert (
-            sum(id_ != FAILED_DOCUMENT_ADD_ID for id_ in path_to_id.values()) == 8
+            sum(id_ != FAILED_DOCUMENT_ADD_ID for id_ in path_to_id.values()) == 11
         ), "Incorrect number of parsed index files"
 
         with subtests.test(msg="check-txt-query"):
@@ -159,9 +160,9 @@ async def test_get_directory_index(
             ),
         ):
             index = await get_directory_index(settings=agent_test_settings)
-        # Subtract 1 for the removed obama.txt file,
+        # Subtract 4 for the removed obama.txt, dummy.docx, dummy.pptx, and dummy.xlsx files,
         # and another 1 for the filtered out flag_day.html
-        assert len(await index.index_files) == len(path_to_id) - 2
+        assert len(await index.index_files) == len(path_to_id) - 4 - 1
         mock_aadd.assert_not_awaited(), "Expected we didn't re-add files"
 
         # Note let's delete files.zip, and confirm we can't load the index
@@ -261,6 +262,9 @@ EXPECTED_STUB_DATA_FILES = {
     "obama.txt",
     "paper.pdf",
     "pasa.pdf",
+    "dummy.docx",
+    "dummy.pptx",
+    "dummy.xlsx",
 }
 
 
@@ -517,15 +521,22 @@ async def test_propagate_options(agent_test_settings: Settings) -> None:
     agent_test_settings.prompts.context_inner = CONTEXT_INNER_PROMPT_NOT_DETAILED
     agent_test_settings.answer.evidence_skip_summary = True
 
+    docs = Docs()
     response = await agent_query(
         query="What is a self-explanatory model?",
         settings=agent_test_settings,
+        docs=docs,
         agent_type=FAKE_AGENT_TYPE,
     )
     assert response.status == AgentStatus.SUCCESS, "Agent did not succeed"
     result = response.session
     assert len(result.answer) > 200, "Answer did not return any results"
     assert "###" in result.answer, "Answer did not propagate system prompt"
+    assert docs.docs, "Expected docs to have been added"
+    assert all(isinstance(d, DocDetails) for d in docs.docs.values())
+    assert all(
+        d.file_location for d in docs.docs.values()  # type: ignore[union-attr]
+    ), "Expected file location to be populated"
     assert len(result.contexts) >= 2, "Test expects a few contexts"
     # Subtract 2 to allow tolerance for chunks with leading/trailing whitespace
     num_contexts_sufficient_length = sum(
