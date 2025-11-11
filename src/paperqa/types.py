@@ -216,6 +216,9 @@ class Context(BaseModel):
     # or useful excerpts of text
     model_config = ConfigDict(extra="allow")
 
+    # Value was chosen to be below a 0-10 scale, making the 'unset' nature obvious
+    UNSET_RELEVANCE: ClassVar[int] = -1
+
     id: str = Field(
         default=AUTOPOPULATE_VALUE,
         description="Unique identifier for the context. Auto-generated if not provided.",
@@ -224,8 +227,8 @@ class Context(BaseModel):
     context: Annotated[str, StringConstraints(strip_whitespace=True)] = Field(
         description=(
             "Summary of the text with respect to a question."
-            " Can be an empty string if a summary is not useful"
-            " (which should accompany a score of 0)."
+            " Can be an empty string if a summary is not useful/irrelevant"
+            " (which should be paired with a score of 0)."
         )
     )
     question: str | None = Field(
@@ -236,7 +239,15 @@ class Context(BaseModel):
         ),
     )
     text: Text
-    score: int = 5
+    score: int = Field(
+        default=UNSET_RELEVANCE,
+        description=(
+            "Relevance score for this context to the question."
+            " The range used here is 0-10, where 0 is 'irrelevant',"
+            " 1 is barely relevant, and 10 is most relevant."
+            " The default is -1 to have a 'sorting safe' default as sub-relevant."
+        ),
+    )
 
     CONTEXT_ENCODING_LENGTH: ClassVar[int] = 500  # chars
     ID_HASH_LENGTH: ClassVar[int] = 8  # chars
@@ -247,14 +258,24 @@ class Context(BaseModel):
         """Return the context as a string."""
         return self.context
 
+    def __hash__(self) -> int:
+        # Account for extras, but order of extras doesn't matter
+        extras = (
+            tuple(sorted(self.__pydantic_extra__.items()))
+            if self.__pydantic_extra__
+            else ()
+        )
+        return hash(
+            (self.id, self.question, self.context, self.text, self.score, extras)
+        )
+
     @model_validator(mode="before")
     @classmethod
     def populate_id(cls, data: dict[str, Any]) -> dict[str, Any]:
         if not data.get("id"):  # NOTE: this includes missing or empty strings
-            content = (
-                data.get("question", "")
-                + data.get("context", "")[: cls.CONTEXT_ENCODING_LENGTH]
-            )
+            content = (data.get("question") or "") + data.get("context", "")[
+                : cls.CONTEXT_ENCODING_LENGTH
+            ]
             return data | {  # Avoid mutating input data
                 "id": cls.REFERENCE_TEMPLATE.format(
                     id=encode_id(content or str(uuid4()), maxsize=cls.ID_HASH_LENGTH)
