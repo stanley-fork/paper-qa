@@ -43,10 +43,13 @@ except ImportError:
 
 if TYPE_CHECKING:
     import numpy as np
+    from limits import RateLimitItem
 
 logger = logging.getLogger(__name__)
 
-NEMOTRON_PARSE_RATE_LIMIT = "40 per 1 minute"  # Default rate for nemotron-parse API
+NVIDIA_API_NEMOTRON_PARSE_RATE_LIMIT = (
+    "40 per 1 minute"  # Default rate for Nvidia's API
+)
 
 
 class NemotronLengthError(ValueError):
@@ -239,6 +242,7 @@ async def _call_nvidia_api(
     api_key: str | None = None,
     api_base: str = "https://integrate.api.nvidia.com/v1",
     model_name: str = "nvidia/nemotron-parse",
+    rate_limit: "RateLimitItem | str | None" = NVIDIA_API_NEMOTRON_PARSE_RATE_LIMIT,
     **completion_kwargs,
 ) -> (
     list[NemotronParseMarkdownBBox]
@@ -252,17 +256,18 @@ async def _call_nvidia_api(
         tool_name: Name of the nemotron-parse tool.
         api_key: Optional API key for Nvidia, default uses the NVIDIA_API_KEY env var.
         api_base: API base URL to pass to the completion,
-            default uses nemotron-parse API's expected base URL.
+            default uses Nvidia API's expected base URL.
         model_name: Model name to pass to the completion,
-            default uses nemotron-parse API's expected model name.
+            default uses Nvidia API's expected model name.
+        rate_limit: Optional rate limit key for rate limiting,
+            default complies with Nvidia API's nemotron-parse limit.
         completion_kwargs: Keyword arguments to pass to the completion.
 
     Returns:
         Parsed response from the API.
     """
     await GLOBAL_LIMITER.try_acquire(
-        ("client|request", "nvidia/nemotron-parse"),
-        rate_limit=NEMOTRON_PARSE_RATE_LIMIT,
+        ("client|request", "nvidia/nemotron-parse"), rate_limit=rate_limit
     )
 
     if api_key is None:
@@ -296,7 +301,8 @@ async def _call_nvidia_api(
     if response.choices[0].finish_reason == "length":
         raise NemotronLengthError(
             f"Model response {response} indicates the input"
-            f" image of shape {image.shape} is too large or the model started babbling."
+            f" image of shape {image.shape} is too large or the model started babbling.",
+            response.choices[0],  # Include if callers want
         )
     if (
         response.choices[0].finish_reason != "tool_calls"
@@ -433,7 +439,8 @@ async def _call_sagemaker_api(
     if response.choices[0].finish_reason == "length":
         raise NemotronLengthError(
             f"Model response {response} indicates the input"
-            f" image of shape {image.shape} is too large or the model started babbling."
+            f" image of shape {image.shape} is too large or the model started babbling.",
+            response.choices[0],  # Include if callers want
         )
     if (
         response.choices[0].finish_reason != "stop"
