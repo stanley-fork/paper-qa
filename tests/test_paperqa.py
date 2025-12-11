@@ -1359,9 +1359,12 @@ async def test_partly_embedded_texts(defer_embeddings: bool) -> None:
     # Some of these texts are partly embedded, some are not
     texts_to_add = [
         pre_embedded_text,
-        Text(text="I like cats.", name="sentence2", doc=stub_doc),
+        Text(text="I like cats.", name="sentence2", doc=stub_doc, metadata="stub"),
     ]
     assert texts_to_add[0] != texts_to_add[1], "Test assumes different texts"
+    assert hash(texts_to_add[0]) != hash(
+        texts_to_add[1]
+    ), "Test assumes different texts"
 
     # 1. Add texts, noting some are partly embedded
     await docs.aadd_texts(texts=texts_to_add, doc=stub_doc)
@@ -3439,6 +3442,35 @@ def test_text_comparison() -> None:
     assert text_with_media1 != text_no_media1
     assert hash(text_with_media1) != hash(text_no_media1)
     assert len({text_with_media1, text_with_media2, text_diff_media}) == 2
+
+    # Test with Pydantic extras
+    text_with_extra1 = Text(text="Hello", name="chunk1", doc=doc, custom_field="value1")
+    assert (
+        text_with_extra1 != text_no_media1
+    ), "Presence of an extra should not be equal"
+    assert hash(text_with_extra1) != hash(text_no_media1)
+    text_with_extra2 = Text(text="Hello", name="chunk1", doc=doc, custom_field="value1")
+    assert text_with_extra1 == text_with_extra2
+    assert hash(text_with_extra1) == hash(text_with_extra2)
+    text_with_extra_diff = Text(
+        text="Hello", name="chunk1", doc=doc, custom_field="value2"
+    )
+    assert (
+        text_with_extra1 != text_with_extra_diff
+    ), "Different extra values should not be equal"
+    assert hash(text_with_extra1) != hash(text_with_extra_diff)
+    text_with_extra_other = Text(
+        text="Hello", name="chunk1", doc=doc, other_custom_field="value1"
+    )
+    assert (
+        text_with_extra1 != text_with_extra_other
+    ), "Different extra keys should not be equal"
+    assert hash(text_with_extra1) != hash(text_with_extra_other)
+    text_with_unhashable_extra = Text(
+        text="Hello", name="chunk1", doc=doc, unhashable_field=["a", "list"]
+    )
+    with pytest.raises(NotImplementedError, match="unhashable extras"):
+        hash(text_with_unhashable_extra)
 
 
 def test_context_comparison() -> None:

@@ -143,6 +143,9 @@ class Doc(Embeddable):
 class Text(Embeddable):
     """A text chunk ready for use in retrieval with a linked document."""
 
+    # We allow extras so one can introduce chunk-specific metadata
+    model_config = ConfigDict(extra="allow")
+
     text: str = Field(description="Processed text content of the chunk.")
     name: str = Field(
         description=(
@@ -169,9 +172,25 @@ class Text(Embeddable):
             and self.text == other.text
             and self.media == other.media
             and self.doc == other.doc
+            and self.__pydantic_extra__ == other.__pydantic_extra__
         )
 
     def __hash__(self) -> int:
+        if self.__pydantic_extra__:
+            unhashable = [
+                k
+                for k, v in self.__pydantic_extra__.items()
+                if not isinstance(v, Hashable)
+            ]
+            if unhashable:
+                raise NotImplementedError(
+                    f"Hashing a {type(self).__name__} with unhashable extras"
+                    " is not yet supported."
+                )
+            # As Python dict equality (used in __eq__) is order independent,
+            # let's go ahead and be order independent in __hash__ too for consistency
+            extras = tuple(sorted(self.__pydantic_extra__.items()))
+            return hash((self.name, self.text, tuple(self.media), extras))
         return hash((self.name, self.text, tuple(self.media)))
 
     async def get_embeddable_text(self, with_enrichment: bool = False) -> str:
