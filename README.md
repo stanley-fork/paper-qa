@@ -24,7 +24,9 @@ question answering, summarization, and contradiction detection.
   - [Example Output](#example-output)
 - [What is PaperQA2](#what-is-paperqa2)
   - [PaperQA2 vs PaperQA](#paperqa2-vs-paperqa)
+  - [PaperQA2 Goes CalVer in December 2025](#paperqa2-goes-calver-in-december-2025)
   - [What's New in Version 5 (aka PaperQA2)?](#whats-new-in-version-5-aka-paperqa2)
+  - [What's New in December 2025?](#whats-new-in-december-2025)
   - [PaperQA2 Algorithm](#paperqa2-algorithm)
 - [Installation](#installation)
 - [CLI Usage](#cli-usage)
@@ -134,8 +136,9 @@ Here are some in no particular order:
 
 ### PaperQA2 vs PaperQA
 
-We've been working on hard on fundamental upgrades for a while and mostly followed [SemVer](https://semver.org/).
-meaning we've incremented the major version number on each breaking change.
+We've been working hard on fundamental upgrades for a while
+and mostly followed [SemVer](https://semver.org/), until [December 2025](#paperqa2-goes-calver-in-december-2025).
+Meaning we've incremented the major version number on each breaking change.
 This brings us to the current major version number v5.
 So why call is the repo now called PaperQA2?
 We wanted to remark on the fact though that we've
@@ -144,6 +147,35 @@ So we arbitrarily call version 5 and onward PaperQA2,
 and versions before it as PaperQA1 to denote the significant change in performance.
 We recognize that we are challenged at naming and counting at FutureHouse,
 so we reserve the right at any time to arbitrarily change the name to PaperCrow.
+
+### PaperQA2 Goes CalVer in December 2025
+
+Prior to December 2025 we used [semantic versioning](https://semver.org/).
+This eventually led to confusion in two ways:
+
+1. Developers: should we major version bump based on
+   settings or fundamental system capabilities?
+   What if a bug fix requires breaking changes to the agent's behaviors?
+2. Speaking: should one use terminology from our publications
+   (e.g. [PaperQA1](https://arxiv.org/abs/2312.07559),
+   [PaperQA2](https://arxiv.org/abs/2409.13740))
+   or the Git tags (e.g. v5) from this repo/package?
+   When someone says "PaperQA" -- what version do they mean?
+
+To resolve these confusions, in December 2025,
+we moved to [calendar versioning](https://calver.org/).
+The developer burden is diminished because
+we're basically removing guarantees of backwards compatibility across releases
+(as CalVer is [ZeroVer](https://0ver.org/) bound to dates).
+It solves the "speaking" issue because Git tags are now
+quite different from publication terminology (e.g. PaperQA2 vs `v2025.12.17`).
+When someone says "PaperQA" it will just refer to the system,
+not a particular snapshot of agentic behaviors.
+When someone says "PaperQA2" it will refer to `paper-qa>=5`,
+which applies to both SemVer tags `v5.0.0` and the new CalVer tags `v2025.12.17`.
+
+This switch is backwards compatible for version 5's SemVer,
+as the year 2025 is strictly greater than major version 5.
 
 ### What's New in Version 5 (aka PaperQA2)?
 
@@ -161,6 +193,33 @@ Version 5 added:
 Note that `Docs` objects pickled from prior versions of `PaperQA` are incompatible with version 5,
 and will need to be rebuilt.
 Also, our minimum Python version was increased to Python 3.11.
+
+### What's New in December 2025?
+
+The last four months since version `5.29.1` have seen many changes:
+
+- New modalities: tables, figures, non-English languages, math equations
+- More and better readers
+  - Two new _model-based_ PDF readers: [Docling](packages/paper-qa-docling)
+    and [Nvidia nemotron-parse](packages/paper-qa-nemotron)
+  - All PDF readers now can parse images and tables, report page numbers,
+    support DPI
+  - A reader for Microsoft Office data types
+- Multimodal contextual summarization
+  - Media objects are also passed to the `summary_llm` during creation
+  - Media objects' embedding space is enhanced using an `enrichment_llm` prompt
+- Simpler and performant HTTP stack
+  - Consolidation from `aiohttp` and `httpx` to just `httpx`
+  - Integration with [`httpx-aiohttp`](https://github.com/karpetrosyan/httpx-aiohttp) for performance
+- `Context` relevance is simplified and some assumptions were removed
+- Many minor features such as
+  retrying `Context` creation upon invalid JSON,
+  compatibility with fall 2025's frontier LLMs,
+  and improved prompt templates
+- Multiple fixes in metadata processing via Semantic Scholar and OpenAlex,
+  and metadata processing
+  (e.g. incorrectly inferring identical document IDs for main text and SI)
+- Completed the deprecations accrued over the past year
 
 ### PaperQA2 Algorithm
 
@@ -368,7 +427,9 @@ from paperqa import Settings, ask
 
 answer_response = ask(
     "What is PaperQA2?",
-    settings=Settings(temperature=0.5, paper_directory="my_papers"),
+    settings=Settings(
+        temperature=0.5, agent={"index": {"paper_directory": "my_papers"}}
+    ),
 )
 ```
 
@@ -380,7 +441,9 @@ from paperqa import Settings, agent_query
 
 answer_response = await agent_query(
     query="What is PaperQA2?",
-    settings=Settings(temperature=0.5, paper_directory="my_papers"),
+    settings=Settings(
+        temperature=0.5, agent={"index": {"paper_directory": "my_papers"}}
+    ),
 )
 ```
 
@@ -475,7 +538,7 @@ from paperqa import Settings, ask
 answer_response = ask(
     "What is PaperQA2?",
     settings=Settings(
-        llm="gpt-4o-mini", summary_llm="gpt-4o-mini", paper_directory="my_papers"
+        llm="gpt-4o-mini", summary_llm="gpt-4o-mini", agent={"index": {"paper_directory": "my_papers"}}
     ),
 )
 ```
@@ -802,9 +865,9 @@ for ... in my_docs:
 Indexes will be placed in the [home directory][home dir] by default.
 This can be controlled via the `PQA_HOME` environment variable.
 
-Indexes are made by reading files in the `Settings.paper_directory`.
+Indexes are made by reading files in the `IndexSettings.paper_directory`.
 By default, we recursively read from subdirectories of the paper directory,
-unless disabled using `Settings.index_recursively`.
+unless disabled using `IndexSettings.recurse_subdirectories`.
 The paper directory is not modified in any way, it's just read from.
 
 [home dir]: https://docs.python.org/3/library/pathlib.html#pathlib.Path.home
@@ -830,7 +893,7 @@ which also works when called on `DocDetails`.
 ### Reusing Index
 
 The local search indexes are built based on a hash of the current `Settings` object.
-So make sure you properly specify the `paper_directory` to your `Settings` object.
+So make sure you properly specify the `paper_directory` to your `IndexSettings` object.
 In general, it's advisable to:
 
 1. Pre-build an index given a folder of papers (can take several minutes)
@@ -845,7 +908,7 @@ from paperqa.agents.search import get_directory_index
 
 
 async def amain(folder_of_papers: str | os.PathLike) -> None:
-    settings = Settings(paper_directory=folder_of_papers)
+    settings = Settings(agent={"index": {"paper_directory": folder_of_papers}})
 
     # 1. Build the index. Note an index name is autogenerated when unspecified
     built_index = await get_directory_index(settings=settings)
@@ -945,17 +1008,13 @@ will return much faster than the first query and we'll be certain the authors ma
 | `answer.group_contexts_by_question`          | `False`                                | Groups the final contexts by the underlying `gather_evidence` question in the final context prompt.                           |
 | `answer.evidence_relevance_score_cutoff`     | `1`                                    | Cutoff evidence relevance score to include in the answer context (inclusive)                                                  |
 | `answer.skip_evidence_citation_strip`        | `False`                                | Skip removal of citations from the `gather_evidence` contexts                                                                 |
-| `parsing.chunk_size`                         | `5000`                                 | Characters per chunk (0 for no chunking).                                                                                     |
 | `parsing.page_size_limit`                    | `1,280,000`                            | Character limit per page.                                                                                                     |
-| `parsing.pdfs_use_block_parsing`             | `False`                                | Opt-in flag for block-based PDF parsing over text-based PDF parsing.                                                          |
 | `parsing.use_doc_details`                    | `True`                                 | Whether to get metadata details for docs.                                                                                     |
-| `parsing.overlap`                            | `250`                                  | Characters to overlap chunks.                                                                                                 |
 | `parsing.reader_config`                      | `dict`                                 | Optional keyword arguments for the document reader.                                                                           |
 | `parsing.multimodal`                         | `True`                                 | Control to parse both text and media from applicable documents, as well as potentially enriching them with text descriptions. |
 | `parsing.defer_embedding`                    | `False`                                | Whether to defer embedding until summarization.                                                                               |
 | `parsing.parse_pdf`                          | `paperqa_pypdf.parse_pdf_to_pages`     | Function to parse PDF files.                                                                                                  |
 | `parsing.configure_pdf_parser`               | No-op                                  | Callable to configure the PDF parser within `parse_pdf`, useful for behaviors such as enabling logging.                       |
-| `parsing.chunking_algorithm`                 | `ChunkingOptions.SIMPLE_OVERLAP`       | Algorithm for chunking.                                                                                                       |
 | `parsing.doc_filters`                        | `None`                                 | Optional filters for allowed documents.                                                                                       |
 | `parsing.use_human_readable_clinical_trials` | `False`                                | Parse clinical trial JSONs into readable text.                                                                                |
 | `parsing.enrichment_llm`                     | `"gpt-4o-2024-11-20"`                  | LLM for media enrichment.                                                                                                     |
@@ -982,7 +1041,6 @@ will return much faster than the first query and we'll be certain the authors ma
 | `agent.return_paper_metadata`                | `False`                                | Whether to include paper title/year in search tool results.                                                                   |
 | `agent.search_count`                         | `8`                                    | Search count.                                                                                                                 |
 | `agent.timeout`                              | `500.0`                                | Timeout on agent execution (seconds).                                                                                         |
-| `agent.should_pre_search`                    | `False`                                | Whether to run search tool before invoking agent.                                                                             |
 | `agent.tool_names`                           | `None`                                 | Optional override on tools to provide the agent.                                                                              |
 | `agent.max_timesteps`                        | `None`                                 | Optional upper limit on environment steps.                                                                                    |
 | `agent.index.name`                           | `None`                                 | Optional name of the index.                                                                                                   |
