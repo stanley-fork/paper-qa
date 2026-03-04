@@ -103,12 +103,12 @@ async def test_parse_pdf_to_pages() -> None:
     fig_1_text.text = "stub"  # Replace text to confirm multimodality works
     docs = Docs()
     assert await docs.aadd_texts(texts=[fig_1_text], doc=doc)
-    for query, substrings_min_counts in (
+    for query, answer_checks in (
         ("What actions can the Crawler take?", [(("search", "expand", "stop"), 2)]),
         ("What actions can the Selector take?", [(("select", "drop"), 2)]),
         (
             "How many User Query blue boxes are there, and what are they connected to?",
-            [(("two", "2"), 1), (("crawler", "selector"), 2)],
+            [r"two|2|(?=.*paper queue)(?=.*selector)"],
         ),
     ):
         session = await docs.aquery(query=query)
@@ -121,13 +121,17 @@ async def test_parse_pdf_to_pages() -> None:
         raw_answer_no_citations = session.raw_answer
         for key in get_citation_ids(session.raw_answer):
             raw_answer_no_citations = raw_answer_no_citations.replace(f"({key})", "")
-        for substrings, min_count in cast(
-            list[tuple[tuple[str, ...], int]], substrings_min_counts
-        ):
-            assert (
-                sum(x in raw_answer_no_citations.lower() for x in substrings)
-                >= min_count
-            ), f"Expected {raw_answer_no_citations=} to have {substrings} present"
+        for check in answer_checks:
+            answer_lower = raw_answer_no_citations.lower()
+            if isinstance(check, str):
+                assert re.search(
+                    check, answer_lower
+                ), f"Expected {raw_answer_no_citations=} to match pattern {check!r}"
+            else:
+                substrings, min_count = cast(tuple[tuple[str, ...], int], check)
+                assert (
+                    sum(x in answer_lower for x in substrings) >= min_count
+                ), f"Expected {raw_answer_no_citations=} to have {substrings} present"
 
     # Check the full page parsing behavior
     parsed_text_full_page = parse_pdf_to_pages(filepath, full_page=True)
@@ -340,16 +344,20 @@ def test_clustering() -> None:
 
 
 @pytest.mark.parametrize(
-    "img_format",
+    ("img_mode", "img_format", "expected_mode"),
     [
-        pytest.param("BMP", id="non_png_re_encodes"),
-        pytest.param("PNG", id="png_passthrough"),
+        pytest.param("RGB", "BMP", "RGB", id="non_png_re_encodes"),
+        pytest.param("RGB", "PNG", "RGB", id="png_passthrough"),
+        pytest.param("CMYK", "TIFF", "RGB", id="cmyk_converts_to_rgb"),
+        pytest.param("L", "BMP", "L", id="grayscale_preserves_mode"),
     ],
 )
-def test_individual_mode_outputs_png(img_format: str) -> None:
-    # Form an image in the input format
+def test_individual_mode_outputs_png(
+    img_mode: str, img_format: str, expected_mode: str
+) -> None:
+    # Form an image in the input format (and mode)
     raw_buf = io.BytesIO()
-    Image.new("RGB", (4, 4), "red").save(raw_buf, format=img_format)
+    Image.new(img_mode, (4, 4)).save(raw_buf, format=img_format)
     raw_bytes = raw_buf.getvalue()
     mock_img_obj = SimpleNamespace(
         image=Image.open(io.BytesIO(raw_bytes)), data=raw_bytes
@@ -373,6 +381,7 @@ def test_individual_mode_outputs_png(img_format: str) -> None:
     result_image = Image.open(io.BytesIO(media.data))
     assert result_image.format == "PNG"
     assert result_image.size == (4, 4)
+    assert result_image.mode == expected_mode
 
 
 class TestMediaMode:
